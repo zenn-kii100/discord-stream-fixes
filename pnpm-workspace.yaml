@@ -1,0 +1,8 @@
+packages:
+  - examples/web
+allowBuilds:
+  '@lng2004/node-datachannel': true
+  esbuild: true
+  node-av: true
+  sharp: true
+  zeromq: true

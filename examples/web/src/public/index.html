@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Discord Stream Control</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --card: #ffffff; --text: #1c1e21; --muted: #6b7280;
+    --border: #d9dce1; --accent: #5865f2; --accent-text: #ffffff;
+    --ok: #1a7f37; --warn: #b45309; --err: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1e1f22; --card: #2b2d31; --text: #f2f3f5; --muted: #a0a4ab;
+      --border: #3f4147; --accent: #5865f2; --accent-text: #ffffff;
+      --ok: #3fb950; --warn: #e3a008; --err: #f47067;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 0 0 6px; }
+  input[type=text], select, input[type=password] {
+    width: 100%; padding: 10px 12px; font-size: 14px; color: var(--text);
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px; }
+  input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .row { display: flex; gap: 8px; align-items: stretch; }
+  .row > input { flex: 1; min-width: 0; }
+  button { font: inherit; font-size: 14px; padding: 10px 14px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--card); color: var(--text); }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  .stack { display: grid; gap: 14px; }
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; }
+  .controls button { flex: 1; min-width: 90px; }
+  .check { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text); margin: 0; }
+  .out { display: none; }
+  .out.show { display: block; }
+  .out input { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+  .title { font-size: 13px; color: var(--muted); margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .status { display: flex; justify-content: space-between; gap: 12px; align-items: center; font-size: 13px; }
+  .pill { padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border); font-size: 12px; }
+  .pill.playing { color: var(--ok); border-color: var(--ok); }
+  .pill.paused, .pill.loading { color: var(--warn); border-color: var(--warn); }
+  .msg { font-size: 13px; min-height: 18px; }
+  .msg.err { color: var(--err); }
+  .msg.ok { color: var(--ok); }
+  .more { position: relative; }
+  .more-panel { display: none; margin-top: 8px; padding: 14px; border: 1px solid var(--border);
+    border-radius: 10px; background: var(--bg); }
+  .more.open .more-panel { display: grid; gap: 12px; }
+  .more-toggle { width: 100%; text-align: left; display: flex; justify-content: space-between; }
+  .hidden { display: none !important; }
+  .hint { font-size: 12px; color: var(--muted); }
+  .voice { font-size: 13px; color: var(--muted); }
+  .login { display: none; }
+  .login.show { display: block; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Discord Stream Control</h1>
+  <div class="sub" id="who">Connecting…</div>
+
+  <div class="card login" id="panelPassword">
+    <label for="pw">Panel password</label>
+    <div class="row">
+      <input id="pw" type="password" autocomplete="current-password">
+      <button class="primary" id="pwBtn">Unlock</button>
+    </div>
+  </div>
+
+  <div class="card stack" id="panel">
+    <div id="account">
+      <div id="tokenBox">
+        <label for="token">Discord token</label>
+        <div class="row">
+          <input id="token" type="password" placeholder="Paste your Discord token here" autocomplete="off" spellcheck="false">
+          <button class="primary" id="login">Login</button>
+        </div>
+        <label class="check" style="margin-top:8px"><input type="checkbox" id="showToken"> Show token</label>
+        <div class="hint">Sent only to this server and kept in memory. It is never saved.</div>
+      </div>
+      <div class="row hidden" id="sessionBox" style="align-items:center">
+        <span id="sessionName" style="flex:1"></span>
+        <button id="logout">Logout</button>
+      </div>
+    </div>
+
+    <div>
+      <label for="yt">YouTube link</label>
+      <div class="row">
+        <input id="yt" type="text" placeholder="Paste a YouTube link here" autocomplete="off" spellcheck="false">
+        <button class="primary" id="gen">Generate</button>
+      </div>
+      <div class="title" id="vidTitle"></div>
+    </div>
+
+    <label class="check"><input type="checkbox" id="auto" checked>
+      Auto: generate and start streaming as soon as I paste a link</label>
+
+    <div class="out" id="out">
+      <label for="mediaUrl">Generated video URL</label>
+      <div class="row">
+        <input id="mediaUrl" type="text" readonly>
+        <button id="copy">Copy</button>
+      </div>
+    </div>
+
+    <div class="more" id="more">
+      <button class="more-toggle" id="moreBtn" aria-expanded="false" aria-controls="morePanel">
+        <span>More</span><span id="caret">▾</span>
+      </button>
+      <div class="more-panel" id="morePanel">
+        <div>
+          <label for="guild">Group</label>
+          <select id="guild"><option value="">Loading groups…</option></select>
+        </div>
+        <div>
+          <label for="channel">Voice channel</label>
+          <select id="channel" disabled><option value="">Select a group first</option></select>
+        </div>
+        <button class="primary" id="watch">Watch</button>
+      </div>
+    </div>
+
+    <div class="controls">
+      <button class="primary" id="join" disabled>Join channel</button>
+      <button id="leave" disabled>Leave channel</button>
+    </div>
+    <div class="voice" id="voice">Not in a voice channel</div>
+    <div class="hint">Discord commands: <b><span id="pfx">L!</span>join</b> (joins the voice channel you are in, or <b><span id="pfx2">L!</span>join &lt;channelId&gt;</b>) and <b><span id="pfx3">L!</span>leave</b></div>
+
+    <div class="controls">
+      <button id="pause" disabled>Pause</button>
+      <button id="resume" disabled>Resume</button>
+      <button id="stop" disabled>Stop</button>
+    </div>
+
+    <div class="status">
+      <span id="now">Idle</span>
+      <span class="pill" id="pill">idle</span>
+    </div>
+    <div class="msg" id="msg" role="status" aria-live="polite"></div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let guilds = [];
+let guildsLoaded = false;
+let busy = false;
+
+function password() { return sessionStorage.getItem("panelPw") || ""; }
+
+async function api(path, body) {
+  const res = await fetch(path, {
+    method: body === undefined ? "GET" : "POST",
+    headers: { "Content-Type": "application/json", "x-panel-password": password() },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 401) { showLogin(); throw new Error("Panel password required"); }
+  if (!res.ok) throw new Error(data.error || "Request failed");
+  return data;
+}
+
+function say(text, kind) {
+  const m = $("msg");
+  m.textContent = text || "";
+  m.className = "msg" + (kind ? " " + kind : "");
+}
+
+function showLogin() { $("panelPassword").classList.add("show"); $("panel").style.display = "none"; }
+function hideLogin() { $("panelPassword").classList.remove("show"); $("panel").style.display = ""; }
+
+$("pwBtn").onclick = async () => {
+  sessionStorage.setItem("panelPw", $("pw").value);
+  try { await init(); hideLogin(); } catch (e) { say(e.message, "err"); }
+};
+
+/* ---- More menu ---- */
+$("moreBtn").onclick = () => {
+  const open = $("more").classList.toggle("open");
+  $("moreBtn").setAttribute("aria-expanded", String(open));
+  $("caret").textContent = open ? "▴" : "▾";
+};
+
+function openMore() {
+  $("more").classList.add("open");
+  $("moreBtn").setAttribute("aria-expanded", "true");
+  $("caret").textContent = "▴";
+}
+
+/* ---- Groups & voice channels ---- */
+async function loadGuilds() {
+  guilds = await api("/api/guilds");
+  const g = $("guild");
+  g.innerHTML = "";
+  g.append(new Option(guilds.length ? "Select a group" : "No groups with voice channels", ""));
+  guilds.forEach((x) => g.append(new Option(x.name, x.id)));
+  const saved = localStorage.getItem("guildId");
+  if (saved && guilds.some((x) => x.id === saved)) g.value = saved;
+  guildsLoaded = true;
+  fillChannels();
+}
+
+function clearGuilds() {
+  guilds = [];
+  guildsLoaded = false;
+  $("guild").innerHTML = "";
+  $("guild").append(new Option("Log in to see your groups", ""));
+  fillChannels();
+}
+
+function fillChannels() {
+  const guild = guilds.find((x) => x.id === $("guild").value);
+  const c = $("channel");
+  c.innerHTML = "";
+  c.disabled = !guild;
+  if (!guild) { c.append(new Option("Select a group first", "")); return; }
+  c.append(new Option("Select a voice channel", ""));
+  guild.channels.forEach((x) => c.append(new Option((x.stage ? "🎙 " : "🔊 ") + x.name, x.id)));
+  const saved = localStorage.getItem("channelId");
+  if (saved && guild.channels.some((x) => x.id === saved)) c.value = saved;
+}
+
+$("guild").onchange = () => {
+  try { localStorage.setItem("guildId", $("guild").value); localStorage.removeItem("channelId"); } catch {}
+  fillChannels();
+};
+$("channel").onchange = () => {
+  try { localStorage.setItem("channelId", $("channel").value); } catch {}
+};
+
+/* ---- Login / Logout (custom token) ---- */
+$("showToken").onchange = () => { $("token").type = $("showToken").checked ? "text" : "password"; };
+
+async function login() {
+  const token = $("token").value.trim();
+  if (!token) { say("Paste your Discord token first.", "err"); return; }
+  $("login").disabled = true;
+  say("Logging in…");
+  try {
+    await api("/api/login", { token });
+    $("token").value = "";
+    say("Logged in.", "ok");
+    await loadGuilds();
+  } catch (e) {
+    say(e.message, "err");
+  } finally {
+    $("login").disabled = false;
+    refresh();
+  }
+}
+$("login").onclick = login;
+$("token").addEventListener("keydown", (e) => { if (e.key === "Enter") login(); });
+
+$("logout").onclick = async () => {
+  try { await api("/api/logout", {}); clearGuilds(); say("Logged out.", "ok"); }
+  catch (e) { say(e.message, "err"); }
+  refresh();
+};
+
+/* ---- Join / Leave voice channel ---- */
+async function join() {
+  if (!$("guild").value || !$("channel").value) {
+    openMore();
+    say("Choose a Group and a voice channel in the More menu.", "err");
+    return;
+  }
+  $("join").disabled = true;
+  say("Joining voice channel…");
+  try {
+    await api("/api/join", { guildId: $("guild").value, channelId: $("channel").value });
+    say("Joined the voice channel.", "ok");
+  } catch (e) {
+    say(e.message, "err");
+  }
+  refresh();
+}
+$("join").onclick = join;
+
+$("leave").onclick = async () => {
+  try { await api("/api/leave", {}); say("Left the voice channel.", "ok"); }
+  catch (e) { say(e.message, "err"); }
+  refresh();
+};
+
+/* ---- Generate ---- */
+async function generate() {
+  const link = $("yt").value.trim();
+  if (!link) { say("Paste a YouTube link first.", "err"); return null; }
+  $("gen").disabled = true;
+  say("Generating video URL…");
+  try {
+    const r = await api("/api/generate", { url: link });
+    $("mediaUrl").value = r.mediaUrl;
+    $("out").classList.add("show");
+    $("vidTitle").textContent = r.title || "";
+    say("Video URL generated.", "ok");
+    return r;
+  } catch (e) {
+    say(e.message, "err");
+    return null;
+  } finally {
+    $("gen").disabled = false;
+  }
+}
+$("gen").onclick = generate;
+
+$("copy").onclick = async () => {
+  try { await navigator.clipboard.writeText($("mediaUrl").value); say("Copied.", "ok"); }
+  catch { $("mediaUrl").select(); say("Press Ctrl+C to copy.", ""); }
+};
+
+/* ---- Watch (start streaming) ---- */
+async function watch() {
+  const link = $("yt").value.trim();
+  if (!link) { say("Paste a YouTube link first.", "err"); return; }
+  if (!$("guild").value || !$("channel").value) {
+    openMore();
+    say("Choose a Group and a voice channel in the More menu.", "err");
+    return;
+  }
+  $("watch").disabled = true;
+  say("Starting stream…");
+  try {
+    await api("/api/watch", { url: link, guildId: $("guild").value, channelId: $("channel").value });
+    say("Streaming to Discord (Go Live).", "ok");
+    refresh();
+  } catch (e) {
+    say(e.message, "err");
+  } finally {
+    $("watch").disabled = false;
+  }
+}
+$("watch").onclick = watch;
+
+/* ---- Auto: paste -> generate -> watch ---- */
+$("yt").addEventListener("paste", () => {
+  // value is not updated until after the paste event
+  setTimeout(async () => {
+    const link = $("yt").value.trim();
+    if (!/^https?:\/\//i.test(link)) return;
+    const r = await generate();
+    if (r && $("auto").checked) await watch();
+  }, 0);
+});
+$("yt").addEventListener("keydown", (e) => { if (e.key === "Enter") generate(); });
+
+/* ---- Pause / Resume / Stop ---- */
+async function control(action) {
+  try { await api("/api/" + action, {}); say(action === "pause" ? "Paused." : action === "resume" ? "Resumed." : "Stopped.", "ok"); }
+  catch (e) { say(e.message, "err"); }
+  refresh();
+}
+$("pause").onclick = () => control("pause");
+$("resume").onclick = () => control("resume");
+$("stop").onclick = () => control("stop");
+
+/* ---- Status ---- */
+function fmt(s) {
+  s = Math.max(0, Math.floor(s));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  const mm = h ? String(m).padStart(2, "0") : String(m);
+  return (h ? h + ":" : "") + mm + ":" + String(sec).padStart(2, "0");
+}
+
+async function refresh() {
+  if (busy) return;
+  busy = true;
+  try {
+    const s = await api("/api/state");
+    $("who").textContent = s.loggingIn ? "Logging in…" : s.user ? "Signed in as " + s.user : "Not logged in. Paste a Discord token below.";
+    $("tokenBox").classList.toggle("hidden", s.loggedIn);
+    $("sessionBox").classList.toggle("hidden", !s.loggedIn);
+    $("sessionName").textContent = s.user ? "Signed in as " + s.user : "";
+    $("login").disabled = s.loggingIn;
+    $("join").disabled = !s.loggedIn;
+    $("watch").disabled = !s.loggedIn;
+    $("leave").disabled = !s.voice;
+    $("voice").textContent = s.voice
+      ? "In voice: 🔊 " + (s.voice.channel || "channel") + (s.voice.guild ? " · " + s.voice.guild : "")
+      : "Not in a voice channel";
+    ["pfx", "pfx2", "pfx3"].forEach((id) => { $(id).textContent = s.prefix || "L!"; });
+    if (s.loggedIn && !guildsLoaded) await loadGuilds();
+    if (!s.loggedIn && guildsLoaded) clearGuilds();
+    $("pill").textContent = s.status;
+    $("pill").className = "pill " + s.status;
+    $("pause").disabled = s.status !== "playing";
+    $("resume").disabled = s.status !== "paused";
+    $("stop").disabled = s.status === "idle";
+    $("now").textContent = s.status === "idle" ? "Idle"
+      : (s.title || "Loading…") + " · " + fmt(s.position) + (s.duration ? " / " + fmt(s.duration) : "");
+    if (s.error) say(s.error, "err");
+  } catch {} finally { busy = false; }
+}
+
+async function init() {
+  await api("/api/state"); // throws on 401 so the password box shows
+  await refresh();
+}
+
+init().catch(() => {});
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "name": "OTgxOTExMjg3NzU3OTQyODI0.GJpi6B.C1FkGU5Aju_w9QcVmdyRHuH73duZW2VEkiiQLs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "yeet": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@dank074/discord-video-stream": "6.0.0",
+    "discord.js-selfbot-v13": "3.7.1",
+    "tsx": "4.23.15"
+  }
+}
